@@ -29,31 +29,18 @@ void IRGenerator::visitFunction(FunctionDecl& node) {
     builder_.setInsertPoint(entry);
     
     current_env_.clear();
-    // Map parameter names to SSA values (placeholders for now)
-    for (const auto& arg : func_ptr->args) {
-        // We use a simple placeholder Value for arguments
-        // In a real implementation, this would be a dedicated Argument class
-        class ArgumentValue : public Value {
-            std::string name;
-            Type type;
-        public:
-            ArgumentValue(std::string n, Type t) : name(std::move(n)), type(t) {}
-            std::string getName() const override { return "%" + name; }
-            Type getType() const override { return type; }
-        };
-        // Note: For simplicity, we are leaking this placeholder here. 
-        // In a production compiler, we would manage these values.
-        current_env_[arg.name] = new ArgumentValue(arg.name, arg.type);
+    for (auto& arg : func_ptr->args) {
+        auto argVal = new ArgumentValue(arg.name, arg.type);
+        arg.ssaValue = argVal;
+        current_env_[arg.name] = argVal;
     }
 
     visitBlock(*node.body);
     
-    // Ensure every function has a terminator
     if (!builder_.getInsertPoint()->getTerminator()) {
         if (func_ptr->returnType == Type::Void) {
             builder_.createRet(nullptr);
         } else {
-            // Should be handled by semantic analyzer, but for safety:
             builder_.createRet(new Constant(func_ptr->returnType, 0));
         }
     }
@@ -70,45 +57,34 @@ void IRGenerator::visitStmt(Stmt& node) {
         current_env_[assign->name.value] = val;
     } else if (auto* ifStmt = dynamic_cast<IfStmt*>(&node)) {
         Value* cond = visitExpr(*ifStmt->condition);
-        
         Function* func = builder_.getInsertPoint()->parent;
         BasicBlock* thenBB = func->createBlock("if.then");
         BasicBlock* elseBB = func->createBlock("if.else");
         BasicBlock* mergeBB = func->createBlock("if.merge");
-        
         builder_.createCondBr(cond, thenBB, elseBB);
         
-        // Then branch
+        BasicBlock* startBB = builder_.getInsertPoint();
+        Environment env_before = current_env_;
+        
         builder_.setInsertPoint(thenBB);
-        Environment env_at_then_entry = current_env_;
         visitStmt(*ifStmt->then_branch);
         BasicBlock* thenOutBB = builder_.getInsertPoint();
-        Environment env_at_then_exit = current_env_;
+        Environment env_then = current_env_;
         if (!thenOutBB->getTerminator()) builder_.createBr(mergeBB);
         
-        // Else branch
         builder_.setInsertPoint(elseBB);
-        current_env_ = env_at_then_entry; // Reset to state before 'if'
-        if (ifStmt->else_branch) {
-            visitStmt(*ifStmt->else_branch);
-        }
+        current_env_ = env_before;
+        if (ifStmt->else_branch) visitStmt(*ifStmt->else_branch);
         BasicBlock* elseOutBB = builder_.getInsertPoint();
-        Environment env_at_else_exit = current_env_;
+        Environment env_else = current_env_;
         if (!elseOutBB->getTerminator()) builder_.createBr(mergeBB);
         
-        // Merge
         builder_.setInsertPoint(mergeBB);
-        std::vector<std::pair<BasicBlock*, Environment>> predecessors;
-        if (!thenOutBB->getTerminator() || thenOutBB->instructions.back()->kind == Instruction::OpKind::Br) {
-             predecessors.push_back({thenOutBB, env_at_then_exit});
-        }
-        if (!elseOutBB->getTerminator() || elseOutBB->instructions.back()->kind == Instruction::OpKind::Br) {
-             predecessors.push_back({elseOutBB, env_at_else_exit});
-        }
-        phiMerge(mergeBB, predecessors);
+        phiMerge(mergeBB, {{thenOutBB, env_then}, {elseOutBB, env_else}});
         
     } else if (auto* whileStmt = dynamic_cast<WhileStmt*>(&node)) {
         Function* func = builder_.getInsertPoint()->parent;
+        BasicBlock* preheaderBB = builder_.getInsertPoint();
         BasicBlock* headerBB = func->createBlock("while.header");
         BasicBlock* bodyBB = func->createBlock("while.body");
         BasicBlock* exitBB = func->createBlock("while.exit");
@@ -116,36 +92,36 @@ void IRGenerator::visitStmt(Stmt& node) {
         builder_.createBr(headerBB);
         builder_.setInsertPoint(headerBB);
         
-        // Phi nodes at header for variables that might change
-        Environment pre_loop_env = current_env_;
-        std::map<std::string, PhiInst*> phis;
+        Environment env_before_loop = current_env_;
+        std::map<std::string, PhiInst*> header_phis;
         for (auto const& [name, val] : current_env_) {
             auto phi = builder_.createPhi(val->getType());
-            phis[name] = phi;
+            phi->addIncoming(preheaderBB, val);
+            header_phis[name] = phi;
             current_env_[name] = phi;
         }
         
         Value* cond = visitExpr(*whileStmt->condition);
         builder_.createCondBr(cond, bodyBB, exitBB);
         
-        // Body
-        loop_stack_.push_back({headerBB, exitBB, pre_loop_env});
         builder_.setInsertPoint(bodyBB);
         visitStmt(*whileStmt->body);
         BasicBlock* bodyOutBB = builder_.getInsertPoint();
         if (!bodyOutBB->getTerminator()) builder_.createBr(headerBB);
-        loop_stack_.pop_back();
         
-        // Backfill phis in header
-        Environment body_exit_env = current_env_;
-        for (auto const& [name, phi] : phis) {
-            phi->addIncoming(headerBB->parent->blocks.front().get(), pre_loop_env[name]); // Simplified: preheader
-            // Wait, we need actual preheader block. Let's assume entry for now if it's first loop.
-            // Actually phiMerge logic is better.
+        // Backfill header phis
+        Environment env_after_body = current_env_;
+        for (auto const& [name, phi] : header_phis) {
+            phi->addIncoming(bodyOutBB, env_after_body[name]);
         }
-        // TODO: Proper phi backfilling for loops
         
         builder_.setInsertPoint(exitBB);
+        // Variables at exit are those from header (since body might not run)
+        current_env_ = env_before_loop;
+        for (auto const& [name, phi] : header_phis) {
+            current_env_[name] = phi;
+        }
+        
     } else if (auto* retStmt = dynamic_cast<ReturnStmt*>(&node)) {
         Value* val = retStmt->value ? visitExpr(*retStmt->value) : nullptr;
         builder_.createRet(val);
@@ -171,14 +147,12 @@ Value* IRGenerator::visitExpr(Expr& node) {
 }
 
 Value* IRGenerator::visitBinaryExpr(BinaryExpr& node) {
-    // Short-circuit logic for && and ||
     if (node.op.type == TokenType::AND) {
+        BasicBlock* startBB = builder_.getInsertPoint();
         Value* l = visitExpr(*node.left);
-        Function* func = builder_.getInsertPoint()->parent;
+        Function* func = startBB->parent;
         BasicBlock* evalR = func->createBlock("and.rhs");
         BasicBlock* merge = func->createBlock("and.merge");
-        BasicBlock* startBB = builder_.getInsertPoint();
-        
         builder_.createCondBr(l, evalR, merge);
         
         builder_.setInsertPoint(evalR);
@@ -194,12 +168,11 @@ Value* IRGenerator::visitBinaryExpr(BinaryExpr& node) {
     }
     
     if (node.op.type == TokenType::OR) {
+        BasicBlock* startBB = builder_.getInsertPoint();
         Value* l = visitExpr(*node.left);
-        Function* func = builder_.getInsertPoint()->parent;
+        Function* func = startBB->parent;
         BasicBlock* evalR = func->createBlock("or.rhs");
         BasicBlock* merge = func->createBlock("or.merge");
-        BasicBlock* startBB = builder_.getInsertPoint();
-        
         builder_.createCondBr(l, merge, evalR);
         
         builder_.setInsertPoint(evalR);
@@ -236,22 +209,14 @@ Value* IRGenerator::visitBinaryExpr(BinaryExpr& node) {
 Value* IRGenerator::visitUnaryExpr(UnaryExpr& node) {
     Value* op = visitExpr(*node.right);
     if (node.op.type == TokenType::NOT) return builder_.createNot(op);
-    if (node.op.type == TokenType::MINUS) {
-        return builder_.createSub(new Constant(Type::I32, 0), op);
-    }
+    if (node.op.type == TokenType::MINUS) return builder_.createSub(new Constant(Type::I32, 0), op);
     return nullptr;
 }
 
 Value* IRGenerator::visitLiteralExpr(LiteralExpr& node) {
-    if (node.token.type == TokenType::INTEGER) {
-        return new Constant(Type::I32, std::stoi(node.token.value));
-    }
-    if (node.token.type == TokenType::TRUE) {
-        return new Constant(Type::I1, 1);
-    }
-    if (node.token.type == TokenType::FALSE) {
-        return new Constant(Type::I1, 0);
-    }
+    if (node.token.type == TokenType::INTEGER) return new Constant(Type::I32, std::stoi(node.token.value));
+    if (node.token.type == TokenType::TRUE) return new Constant(Type::I1, 1);
+    if (node.token.type == TokenType::FALSE) return new Constant(Type::I1, 0);
     return nullptr;
 }
 
@@ -263,11 +228,7 @@ Value* IRGenerator::visitVariableExpr(VariableExpr& node) {
 
 Value* IRGenerator::visitCallExpr(CallExpr& node) {
     std::vector<Value*> args;
-    for (auto const& argExpr : node.arguments) {
-        args.push_back(visitExpr(*argExpr));
-    }
-    // Type inference for return type is missing here, usually from Semantic Analysis results.
-    // For now, let's assume Int if not a print function.
+    for (auto const& argExpr : node.arguments) args.push_back(visitExpr(*argExpr));
     Type retType = (node.callee.value == "print_i32" || node.callee.value == "print_bool") ? Type::Void : Type::I32;
     return builder_.createCall(retType, node.callee.value, args);
 }
@@ -283,23 +244,18 @@ Type IRGenerator::getIRType(const std::string& kotlinType) {
 }
 
 void IRGenerator::phiMerge(BasicBlock* mergeBB, const std::vector<std::pair<BasicBlock*, Environment>>& predecessors) {
-    if (predecessors.empty()) return;
-    
-    // Find all variables that appear in any predecessor environment
     std::set<std::string> all_vars;
     for (auto const& [bb, env] : predecessors) {
-        for (auto const& [name, val] : env) {
-            all_vars.insert(name);
-        }
+        if (bb->getTerminator() && bb->getTerminator()->kind == Instruction::OpKind::Ret) continue;
+        for (auto const& [name, val] : env) all_vars.insert(name);
     }
     
     for (const auto& var : all_vars) {
-        // Collect incoming values for this variable
         std::map<BasicBlock*, Value*> incomings;
         Value* first_val = nullptr;
         bool all_same = true;
-        
         for (auto const& [bb, env] : predecessors) {
+            if (bb->getTerminator() && bb->getTerminator()->kind == Instruction::OpKind::Ret) continue;
             auto it = env.find(var);
             Value* val = (it != env.end()) ? it->second : nullptr;
             if (val) {
@@ -308,14 +264,10 @@ void IRGenerator::phiMerge(BasicBlock* mergeBB, const std::vector<std::pair<Basi
                 else if (val != first_val) all_same = false;
             }
         }
-        
-        if (all_same && first_val && incomings.size() == predecessors.size()) {
-            current_env_[var] = first_val;
-        } else if (!incomings.empty()) {
+        if (all_same && first_val && incomings.size() >= 1) current_env_[var] = first_val;
+        else if (!incomings.empty()) {
             auto phi = builder_.createPhi(first_val->getType());
-            for (auto const& [bb, val] : incomings) {
-                phi->addIncoming(bb, val);
-            }
+            for (auto const& [bb, val] : incomings) phi->addIncoming(bb, val);
             current_env_[var] = phi;
         }
     }

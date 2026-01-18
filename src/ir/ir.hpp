@@ -45,6 +45,16 @@ public:
     Type getType() const override { return type; }
 };
 
+class ArgumentValue : public Value {
+public:
+    std::string name;
+    Type type;
+
+    ArgumentValue(std::string n, Type t) : name(std::move(n)), type(t) {}
+    std::string getName() const override { return "%" + name; }
+    Type getType() const override { return type; }
+};
+
 // --- Instructions ---
 class Instruction : public Value {
 public:
@@ -183,6 +193,7 @@ public:
 struct Argument {
     std::string name;
     Type type;
+    Value* ssaValue = nullptr;
 };
 
 class Function : public Value {

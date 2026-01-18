@@ -70,6 +70,17 @@ To add features:
 
 See [Architecture Guide](docs/architecture.md) for detailed implementation notes.
 
+## Benchmarks
+
+Performance comparison between `kotlin-lite` and standard `kotlinc` is available in the `benchmarks/` directory.
+
+To run the benchmarks:
+```bash
+./benchmarks/run_benchmarks.sh
+```
+
+See the [Benchmarks Guide](docs/benchmarks.md) for more details.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).

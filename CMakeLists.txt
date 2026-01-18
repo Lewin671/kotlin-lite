@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- 3. LLVM 集成 ---
-list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/llvm")
+# list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/llvm")
 find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -43,7 +43,6 @@ enable_testing()
 
 # --- 5. 定义测试程序 ---
 add_executable(unit_tests 
-    tests/test_main.cpp
     tests/lexer/test_lexer.cpp
     tests/parser/test_parser.cpp
     tests/semantic/test_semantic.cpp

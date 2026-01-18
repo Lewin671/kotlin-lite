@@ -1,5 +1,7 @@
 #include <iostream>
+#include "compiler.hpp"
 
 int main(int, char**){
-    std::cout << "Hello, from kotlin-lite!\n";
+    std::cout << kotlin_lite::getGreeting() << std::endl;
+    return 0;
 }

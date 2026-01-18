@@ -1,0 +1,140 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lei
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+/build/
+/bin/
+/out/
+
+# General
+.cache/
+*.log
+*.tmp
+*.bak
+*.swp
+*~
+
+# Debug/Crash reports
+core
+gcore.*
+
+# Archives
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_CPack_Packages/
+CPackConfig.cmake
+CPackSourceConfig.cmake
+/ExternalData/
+/_deps/
+
+# Dependency Managers
+vcpkg_installed/
+conan/
+.conan/
+node_modules/
+
+# Python (common for scripts/testing)
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+
+# Documentation
+docs/html/
+docs/latex/
+doxygen_objdb_*.tmp
+*.tag
+
+# Coverage / Profiling
+*.gcda
+*.gcno
+*.gcov
+coverage/
+*.lcov
+gmon.out
+
+# IDE - VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# IDE - CLion
+.idea/
+cmake-build-*/
+
+# IDE - Visual Studio
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+
+# Editor / Tags
+tags
+GTAGS
+GRTAGS
+GPATH
+
+# OS - macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# OS - Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Environment
+.env
+.env.*

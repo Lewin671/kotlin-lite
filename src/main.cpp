@@ -14,9 +14,10 @@
 void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " <source_file> [options]\n"
               << "Options:\n"
+              << "  -o <file>     Write output binary to <file>\n"
               << "  --dump-ir     Dump the custom SSA IR\n"
               << "  --dump-llvm   Dump the generated LLVM IR\n"
-              << "  --run         Compile and run the program (default)\n"
+              << "  --run         Compile and run the program (default if no -o)\n"
               << "  --help        Show this help message\n";
 }
 
@@ -27,15 +28,19 @@ int main(int argc, char** argv) {
     }
 
     std::string inputFile = "";
+    std::string outputFile = "";
     bool dumpIR = false;
     bool dumpLLVM = false;
-    bool shouldRun = false; // Default to false, will set to true if no other specific dump flags are set or --run is present
+    bool shouldRun = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--dump-ir") dumpIR = true;
         else if (arg == "--dump-llvm") dumpLLVM = true;
         else if (arg == "--run") shouldRun = true;
+        else if (arg == "-o" && i + 1 < argc) {
+            outputFile = argv[++i];
+        }
         else if (arg == "--help") {
             printUsage(argv[0]);
             return 0;
@@ -50,8 +55,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // If no specific dump flag is set, default to run
-    if (!dumpIR && !dumpLLVM) shouldRun = true;
+    // If no specific dump flag and no output file, default to run
+    if (!dumpIR && !dumpLLVM && outputFile.empty()) shouldRun = true;
 
     // 1. Read source file
     std::ifstream file(inputFile);
@@ -96,7 +101,7 @@ int main(int argc, char** argv) {
             llvmMod->print(llvm::outs(), nullptr);
         }
 
-        if (shouldRun) {
+        if (!outputFile.empty() || shouldRun) {
             // Write LLVM IR to temporary file
             std::error_code ec;
             llvm::raw_fd_ostream dest("output.ll", ec);
@@ -108,19 +113,24 @@ int main(int argc, char** argv) {
             dest.flush();
             dest.close();
 
-            // Find runtime path relative to executable or project
-            // For now, assume we are in 'build' and runtime is in '../src/runtime/runtime.c'
             std::string runtimePath = "../src/runtime/runtime.c";
             if (!std::filesystem::exists(runtimePath)) {
-                // Try current dir if not in build
                 runtimePath = "src/runtime/runtime.c";
             }
 
-            std::string cmd = "clang -Wno-override-module output.ll " + runtimePath + " -o program && ./program";
-            int ret = system(cmd.c_str());
-            if (ret != 0) {
-                // std::cerr << "Execution failed with code: " << ret << std::endl;
-                // Note: on some systems, ret might be shifted
+            std::string binaryName = outputFile.empty() ? "./program" : outputFile;
+            std::string compileCmd = "clang -O3 -Wno-override-module output.ll " + runtimePath + " -o " + binaryName;
+            
+            int compileRet = system(compileCmd.c_str());
+            if (compileRet != 0) {
+                std::cerr << "Compilation failed during linking.\n";
+                return 1;
+            }
+
+            if (shouldRun) {
+                system(binaryName.c_str());
+            } else {
+                std::cout << "Binary generated: " << binaryName << "\n";
             }
         }
 

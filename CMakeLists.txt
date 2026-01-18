@@ -9,6 +9,7 @@ add_library(kotlin_lite_lib
     src/compiler.cpp
     src/lexer/lexer.cpp
     src/parser/parser.cpp
+    src/semantic/semantic_analyzer.cpp
 )
 target_include_directories(kotlin_lite_lib PUBLIC src)
 
@@ -32,6 +33,7 @@ add_executable(unit_tests
     tests/test_main.cpp
     tests/lexer/test_lexer.cpp
     tests/parser/test_parser.cpp
+    tests/semantic/test_semantic.cpp
 )
 target_link_libraries(unit_tests 
     PRIVATE 

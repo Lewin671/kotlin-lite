@@ -66,11 +66,14 @@ namespace kotlin_lite {
 
             // 6. Compilation
             if (!options.outputFile.empty() || options.shouldRun) {
+                std::string binaryName = options.outputFile.empty() ? "./program" : options.outputFile;
+                std::string tempLL = binaryName + ".ll";
+
                 // Write LLVM IR to temporary file
                 std::error_code ec;
-                llvm::raw_fd_ostream dest("output.ll", ec);
+                llvm::raw_fd_ostream dest(tempLL, ec);
                 if (ec) {
-                    std::cerr << "Could not open output.ll: " << ec.message() << std::endl;
+                    std::cerr << "Could not open " << tempLL << ": " << ec.message() << std::endl;
                     return 1;
                 }
                 llvmMod->print(dest, nullptr);
@@ -78,10 +81,13 @@ namespace kotlin_lite {
                 dest.close();
 
                 std::string runtimePath = getRuntimePath();
-                std::string binaryName = options.outputFile.empty() ? "./program" : options.outputFile;
-                std::string compileCmd = "clang -O3 -Wno-override-module output.ll " + runtimePath + " -o " + binaryName;
+                std::string compileCmd = "clang -O3 -Wno-override-module " + tempLL + " " + runtimePath + " -o " + binaryName;
                 
                 int compileRet = system(compileCmd.c_str());
+                
+                // Cleanup temporary LLVM IR file
+                std::filesystem::remove(tempLL);
+
                 if (compileRet != 0) {
                     std::cerr << "Compilation failed during linking.\n";
                     return 1;
